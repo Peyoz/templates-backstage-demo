@@ -1,0 +1,144 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: create-ec2-instance
+  title: Create an EC2 Instance
+  description: Create an Instance to deploy your application
+  tags: ['recommended']
+spec:
+  owner: guests
+  type: service
+  parameters:
+    - title: EC2 Instance Creation
+      required:
+         - InstanceName
+         - Region
+         - InstanceType
+      properties:
+        InstanceName:
+          title: Instance Name
+          type: string
+          description: Name of the Instnace to be created.
+          ui:autofocus: true
+          ui:options:
+            rows: 5
+
+        Region:
+          title:  AWS Region
+          type: string
+          description: Name of the region where you want to create your create-ec2-instance eg:- us-east-1, ap-south-1 etc.
+          enum:
+            - eu-south-1
+            - eu-west-1
+
+        InstanceType:
+          title: Type of Instance
+          type: string
+          description: Type of the instance that you want to deploy, for eg:- t2.medium, t3.medium etc.
+          enum:
+            - t3.nano
+            - t3.micro
+            - t3.small
+            - t3.medium
+        
+        action:
+          title: action
+          type: string
+          description: What action do you want to perform? Create or delete?
+          enum:
+            - apply
+            - destroy
+
+    - title: AWS Credentials
+      required:
+         - AWSAccessKey
+         - AWSSecretKey
+      properties:
+        AWSAccessKey:
+          title: AWS Access Key
+          type: string
+          description: Aws Access KEY
+          ui:field: Secret
+        AWSSecretKey:
+          title: AWS Secret Key
+          type: string
+          description: Aws Secret KEY
+          ui:field: Secret
+
+    - title: Choose a Repository Name
+      required:
+        - owner
+        - repo
+      properties:
+        owner:
+          title: Github Owner
+          type: string
+        repo:
+          title: Target Repository Name
+          type: string
+
+  steps:
+# Getting the all the files/details from the template
+    - id: fetch-base
+      name: Fetching Details from content folder
+      action: fetch:template
+      input:
+        url: ./content  # Location of the content directory where catlog-info.yaml file is present for the template
+        values:
+          InstanceName: ${{ parameters.InstanceName }}
+          InstanceType: ${{ parameters.InstanceType }}
+          awsRegion: ${{ parameters.Region }}
+          repo_owner: ${{ parameters.owner }}
+          repo: ${{ parameters.repo }}
+    - id: fetch-base
+      name: Fetching github actions from content folder
+      action: fetch:plain
+      input:
+        url: ./actions  # Location of the content directory where github actions is found
+
+# Publish the content of the current working directory to our github directory
+    - id: publish
+      name: Publishing Details
+      action: publish:github
+      input:
+        allowedHosts: ['github.com']
+        description: This repo is to create an ec2 instance ${{ parameters.InstanceName }} using backstage.
+        repoUrl: github.com?owner=${{ parameters.owner }}&repo=${{ parameters.repo }}
+        repoVisibility: public # or 'internal' or 'private'
+        defaultBranch: main
+        secrets:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWSAccessKey }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWSSecretKey }}
+        repoVariables:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWSAccessKey }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWSSecretKey }}
+
+# Registering new component in the catalog of backstage.
+    - id: register
+      name: Registering the Catalog Info Component
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml # where the info of the catalog is stored.
+
+
+# Triggering CI-CD to create resource in our case github action. 
+    - id: github-action
+      name: Starting GitHub action
+      action: github:actions:dispatch
+      input:
+        workflowId:  instance.yml # ID of GitHub action WorkFlow
+        repoUrl: github.com?owner=${{ parameters.owner }}&repo=${{ parameters.repo }}
+        branchOrTagName: main
+        workflowInputs:
+          action: ${{ parameters.action }}
+          awsRegion: ${{ parameters.Region }}
+
+# Output links  are displayed to the user after the template execution.
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish..output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}
